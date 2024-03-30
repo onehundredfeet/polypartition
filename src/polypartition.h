@@ -221,6 +221,9 @@ public:
     long bestvertex;
   };
 
+  std::vector<DPState*> _dpStateCache;
+  std::vector<DPState> _dpStateCacheStorage;
+
   // Dynamic programming state for convex partitioning.
   struct DPState2 {
     bool visible;
@@ -326,6 +329,9 @@ public:
   // Returns 1 on success, 0 on failure.
   int Triangulate_OPT(TPPLPoly *poly, TPPLPolyList *triangles);
 
+  //Variation added by onehundredfeet
+  int Triangulate_OPT_F(float *pos2D, int stride, int vertCount, std::vector<int> &triangles);
+  
   // Triangulates a polygon by first partitioning it into monotone polygons.
   // Time complexity: O(n*log(n)), n is the number of vertices.
   // Space complexity: O(n)

@@ -850,6 +850,215 @@ int TPPLPartition::Triangulate_OPT(TPPLPoly *poly, TPPLPolyList *triangles) {
   return ret;
 }
 
+int TPPLPartition::Triangulate_OPT_F(float *pos2D, int stride, int vertCount, std::vector<int> &triangles)
+    {
+        //TPPLPoly *poly, TPPLPolyList *triangles
+
+        auto getPoint = [pos2D, stride](int index) {
+            TPPLPoint p = {pos2D[index * stride], pos2D[index * stride + 1]};
+//            printf("\tgetPoint %d %f %f\n", index, p.x, p.y);
+            return p;
+        };
+
+        long i, j, k, gap, n;
+        DPState **dpstates = NULL;
+        TPPLPoint p1, p2, p3, p4;
+        long bestvertex;
+        tppl_float weight, minweight, d1, d2;
+        Diagonal diagonal, newdiagonal;
+        DiagonalList diagonals;
+        TPPLPoly triangle;
+
+        n = vertCount;
+        if (_dpStateCache.size() < n)
+        {
+          auto totalSize = (n * (n + 1)) / 2 + 1;
+            _dpStateCache.resize(n);
+            _dpStateCacheStorage.resize(totalSize);
+
+            auto offset = 1;
+            _dpStateCache[0] = nullptr;
+            for (i = 1; i < n; i++)
+            {
+                _dpStateCache[i] = &_dpStateCacheStorage[offset];
+                offset += i;
+            }
+
+        }
+        std::fill(_dpStateCacheStorage.begin(), _dpStateCacheStorage.end(), DPState());
+        dpstates = _dpStateCache.data();
+
+        // Initialize states and visibility.
+        for (i = 0; i < (n - 1); i++)
+        {
+            p1 = getPoint(i);
+            for (j = i + 1; j < n; j++)
+            {
+                dpstates[j][i].visible = true;
+                dpstates[j][i].weight = 0;
+                dpstates[j][i].bestvertex = -1;
+                if (j != (i + 1))
+                {
+                    p2 = getPoint(j);
+
+                    // Visibility check.
+                    if (i == 0)
+                    {
+                        p3 = getPoint(n - 1);
+                    }
+                    else
+                    {
+                        p3 = getPoint(i - 1);
+                    }
+                    if (i == (n - 1))
+                    {
+                        p4 = getPoint(0);
+                    }
+                    else
+                    {
+                        p4 = getPoint(i + 1);
+                    }
+                    if (!InCone(p3, p1, p4, p2))
+                    {
+                        dpstates[j][i].visible = false;
+                        continue;
+                    }
+
+                    if (j == 0)
+                    {
+                        p3 = getPoint(n - 1);
+                    }
+                    else
+                    {
+                        p3 = getPoint(j - 1);
+                    }
+                    if (j == (n - 1))
+                    {
+                        p4 = getPoint(0);
+                    }
+                    else
+                    {
+                        p4 = getPoint(j + 1);
+                    }
+                    if (!InCone(p3, p2, p4, p1))
+                    {
+                        dpstates[j][i].visible = false;
+                        continue;
+                    }
+
+                    for (k = 0; k < n; k++)
+                    {
+                        p3 = getPoint(k);
+                        if (k == (n - 1))
+                        {
+                            p4 = getPoint(0);
+                        }
+                        else
+                        {
+                            p4 = getPoint(k + 1);
+                        }
+                        if (Intersects(p1, p2, p3, p4))
+                        {
+                            dpstates[j][i].visible = false;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        dpstates[n - 1][0].visible = true;
+        dpstates[n - 1][0].weight = 0;
+        dpstates[n - 1][0].bestvertex = -1;
+
+        for (gap = 2; gap < n; gap++)
+        {
+            for (i = 0; i < (n - gap); i++)
+            {
+                j = i + gap;
+                if (!dpstates[j][i].visible)
+                {
+                    continue;
+                }
+                bestvertex = -1;
+                for (k = (i + 1); k < j; k++)
+                {
+                    if (!dpstates[k][i].visible)
+                    {
+                        continue;
+                    }
+                    if (!dpstates[j][k].visible)
+                    {
+                        continue;
+                    }
+
+                    if (k <= (i + 1))
+                    {
+                        d1 = 0;
+                    }
+                    else
+                    {
+                        d1 = Distance(getPoint(i), getPoint(k));
+                    }
+                    if (j <= (k + 1))
+                    {
+                        d2 = 0;
+                    }
+                    else
+                    {
+                        d2 = Distance(getPoint(k), getPoint(j));
+                    }
+
+                    weight = dpstates[k][i].weight + dpstates[j][k].weight + d1 + d2;
+
+                    if ((bestvertex == -1) || (weight < minweight))
+                    {
+                        bestvertex = k;
+                        minweight = weight;
+                    }
+                }
+                if (bestvertex == -1)
+                {
+                    return 0; // error
+                }
+
+                dpstates[j][i].bestvertex = bestvertex;
+                dpstates[j][i].weight = minweight;
+            }
+        }
+
+        newdiagonal.index1 = 0;
+        newdiagonal.index2 = n - 1;
+        diagonals.push_back(newdiagonal);
+        while (!diagonals.empty())
+        {
+            diagonal = *(diagonals.begin());
+            diagonals.pop_front();
+            bestvertex = dpstates[diagonal.index2][diagonal.index1].bestvertex;
+            if (bestvertex == -1)
+            {
+                return 0;
+            }
+            triangles.push_back(diagonal.index1);
+            triangles.push_back(bestvertex);
+            triangles.push_back(diagonal.index2);
+            if (bestvertex > (diagonal.index1 + 1))
+            {
+                newdiagonal.index1 = diagonal.index1;
+                newdiagonal.index2 = bestvertex;
+                diagonals.push_back(newdiagonal);
+            }
+            if (diagonal.index2 > (bestvertex + 1))
+            {
+                newdiagonal.index1 = bestvertex;
+                newdiagonal.index2 = diagonal.index2;
+                diagonals.push_back(newdiagonal);
+            }
+        }
+
+        return triangles.size() / 3;
+    }
+
+
 void TPPLPartition::UpdateState(long a, long b, long w, long i, long j, DPState2 **dpstates) {
   Diagonal newdiagonal;
   DiagonalList *pairs = NULL;
